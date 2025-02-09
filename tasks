@@ -1,1 +1,37 @@
-
+H1 
+-- первый подзапрос с кол-ом польз. на дату без отмены заказа (платящих)with paying_users as (SELECT date(time),
+                                                                                                     count(distinct user_id) filter (WHERE order_id not in (SELECT order_id
+                                                                                                                                                     FROM   user_actions
+                                                                                                                                                     WHERE  action = 'cancel_order')) as paying_users
+                                                                                              FROM   user_actions
+                                                                                              GROUP BY date(time)),
+-- второй подзапрос с кол-ом курьеров на дату с доставленным (deliver) те работающихwork_couriers as (SELECT date(time),
+                                                                                                             count(distinct courier_id) filter (WHERE order_id in (SELECT order_id
+                                                                                                                                                            FROM   courier_actions
+                                                                                                                                                            WHERE  action = 'deliver_order')) as active_couriers
+                                                                                                      FROM   courier_actions
+                                                                                                      GROUP BY date(time)),
+-- третий подзапрос с кол новых пользователей на кажду датуnew_users as (SELECT date,
+                                                                                count(user_id) new_users
+                                                                         FROM   (SELECT user_id,
+                                                                                        date(min(time)) as date
+                                                                                 FROM   user_actions
+                                                                                 GROUP BY user_id) t1
+                                                                         GROUP BY date),
+-- четвертый подзапрос с кол курьеров на каждую датуnew_couriers as (SELECT date,
+                                                                            count(courier_id) new_couriers
+                                                                     FROM   (SELECT courier_id,
+                                                                                    date(min(time)) as date
+                                                                             FROM   courier_actions
+                                                                             GROUP BY courier_id) t1
+                                                                     GROUP BY date)
+-- итоговый запрос
+SELECT date,
+       paying_users,
+       active_couriers,
+       round(paying_users / sum(new_users) OVER (rows between unbounded preceding and current row) * 100,
+             2) paying_users_share,
+       round(active_couriers / sum(new_couriers) OVER (rows between unbounded preceding and current row) * 100,
+             2) active_couriers_share
+FROM   paying_users join work_couriers using(date) join new_users using(date) join new_couriers using(date)
+ORDER BY date
